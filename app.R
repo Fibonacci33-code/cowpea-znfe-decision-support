@@ -16,6 +16,42 @@ library(nnet)
 load("ML_framework_V1.0.RData")
 
 # ------------------------------------------------------------
+# 1A. EXPERIMENTAL DOMAIN CHECK FOR CLOUD
+# ------------------------------------------------------------
+
+check_domain <- function(Zn, Fe, AppMode) {
+
+  valid_zn <- c(0, 7.5, 15, 22.5)
+  valid_fe <- c(0, 5, 15, 25)
+  valid_mode <- c("S", "F", "SF")
+
+  within_domain <-
+    Zn %in% valid_zn &&
+    Fe %in% valid_fe &&
+    AppMode %in% valid_mode
+
+  warning_message <- if (within_domain) {
+    paste(
+      "Recommendation is within the experimental domain.",
+      "It corresponds to one of the 48 Zn × Fe × application-mode",
+      "combinations evaluated in the field experiment."
+    )
+  } else {
+    paste(
+      "Warning: recommendation is outside the experimental domain.",
+      "This prototype should only be used for the 48 experimentally",
+      "tested Zn × Fe × application-mode combinations."
+    )
+  }
+
+  data.frame(
+    Within_Experimental_Domain = within_domain,
+    Warning = warning_message,
+    stringsAsFactors = FALSE
+  )
+}
+
+# ------------------------------------------------------------
 # 1A. RESTORE SCENARIO RECOMMENDATION FUNCTION FOR CLOUD
 # ------------------------------------------------------------
 
