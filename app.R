@@ -142,14 +142,195 @@ recommend_treatment_scenario <- function(
 }
 
 # ------------------------------------------------------------
-# 1A.1 CLOUD ENVIRONMENT BRIDGE
+# 1A.2 REBUILD TREATMENT-LEVEL EXPERIMENTAL UNCERTAINTY
 # ------------------------------------------------------------
 
-assign(
-  "recommend_treatment_scenario",
-  recommend_treatment_scenario,
-  envir = environment(recommend_treatment_with_uncertainty)
+if (!exists("dados_decisao")) {
+
+  if (exists("dados_real")) {
+
+    dados_decisao <- dados_real %>%
+      transmute(
+        Block   = factor(Block),
+        AppMode = factor(AppMode),
+        Zn      = as.numeric(as.character(Zn)),
+        Fe      = as.numeric(as.character(Fe)),
+        Yield   = as.numeric(Yield),
+        Zn_mgkg = as.numeric(Zn_mgkg),
+        Fe_mgkg = as.numeric(Fe_mgkg)
+      )
+
+  } else {
+
+    stop(
+      "Neither 'dados_decisao' nor 'dados_real' was found in ML_framework_V1.0.RData."
+    )
+  }
+}
+
+treatment_uncertainty <- dados_decisao %>%
+  group_by(
+    Zn,
+    Fe,
+    AppMode
+  ) %>%
+  summarise(
+
+    Experimental_n = dplyr::n(),
+
+    Observed_Yield_Mean = mean(
+      Yield,
+      na.rm = TRUE
+    ),
+
+    Observed_Yield_SD = sd(
+      Yield,
+      na.rm = TRUE
+    ),
+
+    Observed_Zn_Mean = mean(
+      Zn_mgkg,
+      na.rm = TRUE
+    ),
+
+    Observed_Zn_SD = sd(
+      Zn_mgkg,
+      na.rm = TRUE
+    ),
+
+    Observed_Fe_Mean = mean(
+      Fe_mgkg,
+      na.rm = TRUE
+    ),
+
+    Observed_Fe_SD = sd(
+      Fe_mgkg,
+      na.rm = TRUE
+    ),
+
+    .groups = "drop"
+  ) %>%
+  mutate(
+
+    t_critical =
+      qt(
+        0.975,
+        df = Experimental_n - 1
+      ),
+
+    Observed_Yield_SE =
+      Observed_Yield_SD /
+      sqrt(Experimental_n),
+
+    Observed_Zn_SE =
+      Observed_Zn_SD /
+      sqrt(Experimental_n),
+
+    Observed_Fe_SE =
+      Observed_Fe_SD /
+      sqrt(Experimental_n),
+
+    Observed_Yield_LCL95 =
+      Observed_Yield_Mean -
+      t_critical *
+      Observed_Yield_SE,
+
+    Observed_Yield_UCL95 =
+      Observed_Yield_Mean +
+      t_critical *
+      Observed_Yield_SE,
+
+    Observed_Zn_LCL95 =
+      Observed_Zn_Mean -
+      t_critical *
+      Observed_Zn_SE,
+
+    Observed_Zn_UCL95 =
+      Observed_Zn_Mean +
+      t_critical *
+      Observed_Zn_SE,
+
+    Observed_Fe_LCL95 =
+      Observed_Fe_Mean -
+      t_critical *
+      Observed_Fe_SE,
+
+    Observed_Fe_UCL95 =
+      Observed_Fe_Mean +
+      t_critical *
+      Observed_Fe_SE
+  )
+
+stopifnot(
+  nrow(treatment_uncertainty) == 48
 )
+
+# ------------------------------------------------------------
+# 1A.3 SELF-CONTAINED RECOMMENDATION + UNCERTAINTY WRAPPER
+# ------------------------------------------------------------
+
+recommend_treatment_with_uncertainty <- function(
+    objective = c(
+      "max_yield",
+      "max_zn",
+      "max_fe",
+      "max_profit",
+      "balanced"
+    ),
+    scenario = c(
+      "Baseline",
+      "Favorable",
+      "Unfavorable"
+    )
+) {
+
+  objective <- match.arg(objective)
+  scenario  <- match.arg(scenario)
+
+  recommendation <-
+    recommend_treatment_scenario(
+      objective = objective,
+      scenario = scenario
+    )
+
+  uncertainty_row <-
+    treatment_uncertainty %>%
+    filter(
+      Zn == recommendation$Zn_kg_ha[1],
+      Fe == recommendation$Fe_kg_ha[1],
+      as.character(AppMode) ==
+        recommendation$Application_Mode[1]
+    ) %>%
+    slice_head(
+      n = 1
+    )
+
+  if (nrow(uncertainty_row) != 1) {
+
+    stop(
+      "Experimental uncertainty information was not found for the selected treatment."
+    )
+  }
+
+  output <- bind_cols(
+    recommendation,
+    uncertainty_row %>%
+      select(
+        Experimental_n,
+        Observed_Yield_Mean,
+        Observed_Yield_LCL95,
+        Observed_Yield_UCL95,
+        Observed_Zn_Mean,
+        Observed_Zn_LCL95,
+        Observed_Zn_UCL95,
+        Observed_Fe_Mean,
+        Observed_Fe_LCL95,
+        Observed_Fe_UCL95
+      )
+  )
+
+  return(output)
+}
 
 # ------------------------------------------------------------
 # 1B. RECONSTRUCT VISUALIZATION OBJECTS
