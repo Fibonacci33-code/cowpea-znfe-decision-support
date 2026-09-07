@@ -1,6 +1,6 @@
 # ============================================================
 # COWPEA Zn-Fe DECISION SUPPORT FRAMEWORK
-# Web Prototype V1.5
+# Prototype V1.5
 # ============================================================
 
 library(shiny)
@@ -14,6 +14,97 @@ library(nnet)
 # ------------------------------------------------------------
 
 load("ML_framework_V1.0.RData")
+
+# ------------------------------------------------------------
+# 1A. RESTORE SCENARIO RECOMMENDATION FUNCTION FOR CLOUD
+# ------------------------------------------------------------
+
+recommend_treatment_scenario <- function(
+    objective = c(
+      "max_yield",
+      "max_zn",
+      "max_fe",
+      "max_profit",
+      "balanced"
+    ),
+    scenario = c(
+      "Baseline",
+      "Favorable",
+      "Unfavorable"
+    )
+) {
+
+  objective <- match.arg(objective)
+  scenario  <- match.arg(scenario)
+
+  scenario_data <- resultado_cenarios %>%
+    filter(Scenario == scenario)
+
+  recommendation <- switch(
+
+    objective,
+
+    max_yield =
+      scenario_data %>%
+      arrange(desc(Pred_Yield)) %>%
+      slice_head(n = 1),
+
+    max_zn =
+      scenario_data %>%
+      arrange(desc(Pred_Zn_mgkg)) %>%
+      slice_head(n = 1),
+
+    max_fe =
+      scenario_data %>%
+      arrange(desc(Pred_Fe_mgkg)) %>%
+      slice_head(n = 1),
+
+    max_profit =
+      scenario_data %>%
+      arrange(desc(Net_Profit_Scenario)) %>%
+      slice_head(n = 1),
+
+    balanced =
+      scenario_data %>%
+      filter(Pareto_4obj_scenario) %>%
+      arrange(Dist_Ideal_4_scenario) %>%
+      slice_head(n = 1)
+  )
+
+  domain_result <- check_domain(
+    Zn = recommendation$Zn[1],
+    Fe = recommendation$Fe[1],
+    AppMode = as.character(recommendation$AppMode[1])
+  )
+
+  objective_label <- switch(
+    objective,
+    max_yield  = "Maximum Yield",
+    max_zn     = "Maximum Grain Zn",
+    max_fe     = "Maximum Grain Fe",
+    max_profit = "Maximum Net Profit",
+    balanced   = "Best Balanced Bioeconomic Compromise"
+  )
+
+  output <- data.frame(
+    Scenario = scenario,
+    Objective = objective_label,
+    Zn_kg_ha = recommendation$Zn[1],
+    Fe_kg_ha = recommendation$Fe[1],
+    Application_Mode = as.character(recommendation$AppMode[1]),
+    Predicted_Yield_kg_ha = recommendation$Pred_Yield[1],
+    Predicted_Grain_Zn_mg_kg = recommendation$Pred_Zn_mgkg[1],
+    Predicted_Grain_Fe_mg_kg = recommendation$Pred_Fe_mgkg[1],
+    Net_Profit_USD_ha = recommendation$Net_Profit_Scenario[1],
+    Within_Experimental_Domain =
+      domain_result$Within_Experimental_Domain[1],
+    Reliability_Message =
+      domain_result$Warning[1]
+  )
+
+  return(output)
+}
+
 
 # ------------------------------------------------------------
 # 1B. RECONSTRUCT VISUALIZATION OBJECTS
@@ -290,23 +381,29 @@ ui <- fluidPage(
           
           wellPanel(
             fluidRow(
+              
               column(
                 width = 4,
                 strong("Experimental alternatives"),
                 tags$br(),
                 "48 tested combinations"
               ),
+              
               column(
                 width = 4,
                 strong("Pareto-efficient alternatives"),
                 tags$br(),
                 "18 non-dominated combinations"
               ),
+              
               column(
                 width = 4,
                 strong("Current recommendation"),
                 tags$br(),
-                textOutput("pareto_selected_summary", inline = TRUE)
+                textOutput(
+                  "pareto_selected_summary",
+                  inline = TRUE
+                )
               )
             )
           ),
@@ -451,7 +548,7 @@ ui <- fluidPage(
 server <- function(input, output, session) {
   
   # ----------------------------------------------------------
-  # 5.1 Generate recommendation
+  # 5.1 GENERATE RECOMMENDATION
   # ----------------------------------------------------------
   
   recommendation <- eventReactive(
@@ -466,23 +563,23 @@ server <- function(input, output, session) {
   )
   
   # ----------------------------------------------------------
-  # 5.2 Recommendation panel
+  # 5.2 RECOMMENDATION PANEL
   # ----------------------------------------------------------
-
+  
   output$recommendation_output <- renderUI({
-
+    
     req(recommendation())
-
+    
     rec <- recommendation()
-
+    
     mode_name <- application_label(
       rec$Application_Mode
     )
-
+    
     tagList(
-
+      
       h3("Recommended management"),
-
+      
       p(
         strong("Decision objective: "),
         rec$Objective,
@@ -490,42 +587,58 @@ server <- function(input, output, session) {
         strong("Economic scenario: "),
         rec$Scenario
       ),
-
+      
+      # ------------------------------------------------------
+      # 1. MANAGEMENT
+      # ------------------------------------------------------
+      
       wellPanel(
-
+        
         h4("1. Management"),
-
+        
         fluidRow(
-
+          
           column(
             width = 4,
+            
             p(
               strong("Zn rate"),
               tags$br(),
+              
               tags$span(
                 style = "font-size: 22px;",
-                paste0(round(rec$Zn_kg_ha, 1), " kg ha⁻¹")
+                paste0(
+                  round(rec$Zn_kg_ha, 1),
+                  " kg ha⁻¹"
+                )
               )
             )
           ),
-
+          
           column(
             width = 4,
+            
             p(
               strong("Fe rate"),
               tags$br(),
+              
               tags$span(
                 style = "font-size: 22px;",
-                paste0(round(rec$Fe_kg_ha, 1), " kg ha⁻¹")
+                paste0(
+                  round(rec$Fe_kg_ha, 1),
+                  " kg ha⁻¹"
+                )
               )
             )
           ),
-
+          
           column(
             width = 4,
+            
             p(
               strong("Application mode"),
               tags$br(),
+              
               tags$span(
                 style = "font-size: 22px;",
                 mode_name
@@ -534,18 +647,24 @@ server <- function(input, output, session) {
           )
         )
       ),
-
+      
+      # ------------------------------------------------------
+      # 2. PREDICTED OUTCOMES
+      # ------------------------------------------------------
+      
       wellPanel(
-
+        
         h4("2. Predicted outcomes"),
-
+        
         fluidRow(
-
+          
           column(
             width = 4,
+            
             p(
               strong("Grain yield"),
               tags$br(),
+              
               tags$span(
                 style = "font-size: 22px;",
                 paste0(
@@ -555,12 +674,14 @@ server <- function(input, output, session) {
               )
             )
           ),
-
+          
           column(
             width = 4,
+            
             p(
               strong("Grain Zn"),
               tags$br(),
+              
               tags$span(
                 style = "font-size: 22px;",
                 paste0(
@@ -570,12 +691,14 @@ server <- function(input, output, session) {
               )
             )
           ),
-
+          
           column(
             width = 4,
+            
             p(
               strong("Grain Fe"),
               tags$br(),
+              
               tags$span(
                 style = "font-size: 22px;",
                 paste0(
@@ -587,18 +710,24 @@ server <- function(input, output, session) {
           )
         )
       ),
-
+      
+      # ------------------------------------------------------
+      # 3. ECONOMIC OUTCOME
+      # ------------------------------------------------------
+      
       wellPanel(
-
+        
         h4("3. Economic outcome"),
-
+        
         fluidRow(
-
+          
           column(
             width = 6,
+            
             p(
               strong("Net profit"),
               tags$br(),
+              
               tags$span(
                 style = "font-size: 24px;",
                 paste0(
@@ -609,12 +738,14 @@ server <- function(input, output, session) {
               )
             )
           ),
-
+          
           column(
             width = 6,
+            
             p(
               strong("Economic scenario"),
               tags$br(),
+              
               tags$span(
                 style = "font-size: 22px;",
                 rec$Scenario
@@ -623,30 +754,38 @@ server <- function(input, output, session) {
           )
         )
       ),
-
+      
+      # ------------------------------------------------------
+      # 4. EXPERIMENTAL EVIDENCE
+      # ------------------------------------------------------
+      
       wellPanel(
-
+        
         h4("4. Experimental evidence"),
-
+        
         p(
           paste(
             "Observed treatment means and empirical 95% confidence intervals",
             "from the four experimental replicates are shown below."
           )
         ),
-
+        
         fluidRow(
-
+          
           column(
             width = 4,
+            
             p(
               strong("Observed mean yield"),
               tags$br(),
+              
               paste0(
                 round(rec$Observed_Yield_Mean, 1),
                 " kg ha⁻¹"
               ),
+              
               tags$br(),
+              
               tags$small(
                 paste0(
                   "95% CI: ",
@@ -657,17 +796,21 @@ server <- function(input, output, session) {
               )
             )
           ),
-
+          
           column(
             width = 4,
+            
             p(
               strong("Observed mean grain Zn"),
               tags$br(),
+              
               paste0(
                 round(rec$Observed_Zn_Mean, 2),
                 " mg kg⁻¹"
               ),
+              
               tags$br(),
+              
               tags$small(
                 paste0(
                   "95% CI: ",
@@ -678,17 +821,21 @@ server <- function(input, output, session) {
               )
             )
           ),
-
+          
           column(
             width = 4,
+            
             p(
               strong("Observed mean grain Fe"),
               tags$br(),
+              
               paste0(
                 round(rec$Observed_Fe_Mean, 2),
                 " mg kg⁻¹"
               ),
+              
               tags$br(),
+              
               tags$small(
                 paste0(
                   "95% CI: ",
@@ -700,36 +847,44 @@ server <- function(input, output, session) {
             )
           )
         ),
-
+        
         p(
           strong("Experimental replicates: "),
           rec$Experimental_n
         )
       ),
-
+      
+      # ------------------------------------------------------
+      # 5. DECISION RELIABILITY
+      # ------------------------------------------------------
+      
       wellPanel(
-
+        
         h4("5. Decision reliability"),
-
+        
         p(
           strong(
             if (isTRUE(rec$Within_Experimental_Domain)) {
+              
               "SUPPORTED — experimentally represented treatment"
+              
             } else {
+              
               "OUTSIDE EXPERIMENTAL DOMAIN"
             }
           )
         ),
-
+        
         p(
           rec$Reliability_Message
         ),
-
+        
         hr(),
-
+        
         p(
           strong("Important limitation"),
           tags$br(),
+          
           paste(
             "This prototype is an internal decision-support tool based on one",
             "location, one growing season and one cowpea genotype.",
@@ -741,20 +896,29 @@ server <- function(input, output, session) {
       )
     )
   })
-
+  
   # ----------------------------------------------------------
-  # 5.3 Pareto decision map
+  # 5.3 PARETO DECISION MAP
   # ----------------------------------------------------------
   
   output$pareto_selected_summary <- renderText({
     
     req(recommendation())
+    
     rec <- recommendation()
     
     paste0(
-      format(rec$Zn_kg_ha, trim = TRUE, scientific = FALSE),
+      format(
+        rec$Zn_kg_ha,
+        trim = TRUE,
+        scientific = FALSE
+      ),
       " Zn + ",
-      format(rec$Fe_kg_ha, trim = TRUE, scientific = FALSE),
+      format(
+        rec$Fe_kg_ha,
+        trim = TRUE,
+        scientific = FALSE
+      ),
       " Fe + ",
       rec$Application_Mode
     )
@@ -763,13 +927,24 @@ server <- function(input, output, session) {
   output$pareto_plot <- renderPlot({
     
     req(recommendation())
+    
     rec <- recommendation()
     
     plot_data <- pareto_plot_data %>%
       mutate(
+        
         Pareto_Status = factor(
-          ifelse(Pareto_4obj, "Pareto-efficient", "Dominated"),
-          levels = c("Dominated", "Pareto-efficient")
+          
+          ifelse(
+            Pareto_4obj,
+            "Pareto-efficient",
+            "Dominated"
+          ),
+          
+          levels = c(
+            "Dominated",
+            "Pareto-efficient"
+          )
         )
       )
     
@@ -791,8 +966,12 @@ server <- function(input, output, session) {
       )
     ) +
       
+      # Dominated alternatives
       geom_point(
-        data = filter(plot_data, Pareto_Status == "Dominated"),
+        data = filter(
+          plot_data,
+          Pareto_Status == "Dominated"
+        ),
         aes(
           size = Pred_Zn_mgkg,
           fill = Pred_Fe_mgkg
@@ -803,8 +982,12 @@ server <- function(input, output, session) {
         stroke = 0.4
       ) +
       
+      # Pareto-efficient alternatives
       geom_point(
-        data = filter(plot_data, Pareto_Status == "Pareto-efficient"),
+        data = filter(
+          plot_data,
+          Pareto_Status == "Pareto-efficient"
+        ),
         aes(
           size = Pred_Zn_mgkg,
           fill = Pred_Fe_mgkg
@@ -815,6 +998,7 @@ server <- function(input, output, session) {
         stroke = 0.7
       ) +
       
+      # Selected recommendation
       geom_point(
         data = current_rec,
         aes(
@@ -844,14 +1028,15 @@ server <- function(input, output, session) {
       ) +
       
       scale_size_continuous(
-        name = "Predicted grain Zn
-(mg kg⁻¹)",
-        range = c(2.5, 7)
+        name = "Predicted grain Zn\n(mg kg⁻¹)",
+        range = c(
+          2.5,
+          7
+        )
       ) +
       
       scale_fill_gradient(
-        name = "Predicted grain Fe
-(mg kg⁻¹)",
+        name = "Predicted grain Fe\n(mg kg⁻¹)",
         low = "grey85",
         high = "grey20"
       ) +
@@ -859,7 +1044,12 @@ server <- function(input, output, session) {
       labs(
         x = "Predicted grain yield (kg ha⁻¹)",
         y = "Net profit (US$ ha⁻¹)",
-        subtitle = "Circles = dominated alternatives; triangles = Pareto-efficient alternatives",
+        
+        subtitle = paste(
+          "Circles = dominated alternatives;",
+          "triangles = Pareto-efficient alternatives"
+        ),
+        
         caption = paste(
           "Pareto efficiency is determined simultaneously from predicted grain yield,",
           "predicted grain Zn, predicted grain Fe and net profit.",
@@ -868,22 +1058,35 @@ server <- function(input, output, session) {
       ) +
       
       guides(
-        size = guide_legend(order = 1),
-        fill = guide_colorbar(order = 2)
+        size = guide_legend(
+          order = 1
+        ),
+        fill = guide_colorbar(
+          order = 2
+        )
       ) +
       
-      theme_minimal(base_size = 12) +
+      theme_minimal(
+        base_size = 12
+      ) +
       
       theme(
         legend.position = "right",
         panel.grid.minor = element_blank(),
-        plot.subtitle = element_text(size = 11),
-        plot.caption = element_text(hjust = 0, size = 9)
+        
+        plot.subtitle = element_text(
+          size = 11
+        ),
+        
+        plot.caption = element_text(
+          hjust = 0,
+          size = 9
+        )
       )
   })
   
   # ----------------------------------------------------------
-  # 5.4 Economic robustness
+  # 5.4 ECONOMIC ROBUSTNESS
   # ----------------------------------------------------------
   
   output$economic_plot <- renderPlot({
@@ -892,9 +1095,11 @@ server <- function(input, output, session) {
     
     plot_econ <- economic_robustness %>%
       filter(
-        Treatment %in% economic_key_treatments$Treatment
+        Treatment %in%
+          economic_key_treatments$Treatment
       ) %>%
       mutate(
+        
         Scenario = factor(
           Scenario,
           levels = c(
@@ -933,6 +1138,7 @@ server <- function(input, output, session) {
         y = "Net profit (US$ ha⁻¹)",
         linetype = "Treatment",
         shape = "Treatment",
+        
         caption = paste(
           "Economic robustness across unfavorable, baseline and favorable",
           "scenarios for selected strategic treatments."
@@ -945,7 +1151,7 @@ server <- function(input, output, session) {
   })
   
   # ----------------------------------------------------------
-  # 5.5 Model reliability tables
+  # 5.5 MODEL RELIABILITY TABLES
   # ----------------------------------------------------------
   
   output$plot_level_table <- renderTable({
@@ -954,14 +1160,32 @@ server <- function(input, output, session) {
       transmute(
         Outcome,
         Model,
-        RMSE = sprintf("%.2f", RMSE),
-        MAE = sprintf("%.2f", MAE),
-        `R²` = sprintf("%.3f", R2),
-        `Pearson r` = sprintf("%.3f", Pearson_r),
-        `Spearman ρ` = sprintf("%.3f", Spearman_rho)
+        RMSE = sprintf(
+          "%.2f",
+          RMSE
+        ),
+        MAE = sprintf(
+          "%.2f",
+          MAE
+        ),
+        `R²` = sprintf(
+          "%.3f",
+          R2
+        ),
+        `Pearson r` = sprintf(
+          "%.3f",
+          Pearson_r
+        ),
+        `Spearman ρ` = sprintf(
+          "%.3f",
+          Spearman_rho
+        )
       )
     
-  }, striped = TRUE, bordered = TRUE, spacing = "m")
+  },
+  striped = TRUE,
+  bordered = TRUE,
+  spacing = "m")
   
   output$treatment_level_table <- renderTable({
     
@@ -969,14 +1193,32 @@ server <- function(input, output, session) {
       transmute(
         Outcome,
         Model,
-        RMSE = sprintf("%.2f", RMSE),
-        MAE = sprintf("%.2f", MAE),
-        `R²` = sprintf("%.3f", R2),
-        `Pearson r` = sprintf("%.3f", Pearson_r),
-        `Spearman ρ` = sprintf("%.3f", Spearman_rho)
+        RMSE = sprintf(
+          "%.2f",
+          RMSE
+        ),
+        MAE = sprintf(
+          "%.2f",
+          MAE
+        ),
+        `R²` = sprintf(
+          "%.3f",
+          R2
+        ),
+        `Pearson r` = sprintf(
+          "%.3f",
+          Pearson_r
+        ),
+        `Spearman ρ` = sprintf(
+          "%.3f",
+          Spearman_rho
+        )
       )
     
-  }, striped = TRUE, bordered = TRUE, spacing = "m")
+  },
+  striped = TRUE,
+  bordered = TRUE,
+  spacing = "m")
 }
 
 # ------------------------------------------------------------
